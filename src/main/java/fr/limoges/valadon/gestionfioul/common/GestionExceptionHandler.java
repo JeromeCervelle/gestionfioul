@@ -1,0 +1,33 @@
+package fr.limoges.valadon.gestionfioul.common;
+
+import java.util.NoSuchElementException;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+/**
+ * Traduit les exceptions levées par les services en réponses HTTP.
+ */
+@RestControllerAdvice
+public class GestionExceptionHandler {
+
+    // donnée invalide
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ProblemDetail donneeInvalide(IllegalArgumentException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    // ressource inexistante
+    @ExceptionHandler(NoSuchElementException.class)
+    public ProblemDetail introuvable(NoSuchElementException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+    }
+
+    // action impossible dans l'état actuel (campagne déjà clôturée, doublon...)
+    @ExceptionHandler(IllegalStateException.class)
+    public ProblemDetail etatIncompatible(IllegalStateException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    }
+}
