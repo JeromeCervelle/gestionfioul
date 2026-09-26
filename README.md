@@ -98,8 +98,9 @@ stateDiagram-v2
 | Base de données | MongoDB **8.0.9** via `spring-boot-starter-data-mongodb` |
 | Sécurité | Spring Security — **HTTP Basic**, sessions désactivées, mots de passe **BCrypt** |
 | Documentation | springdoc-openapi **3.1.1** (Swagger UI) |
+| Planification | Spring Scheduling (`@EnableScheduling` / `@Scheduled`) — clôture automatique des campagnes échues |
 | Conteneurs | Docker Compose (MongoDB + mongo-express) |
-| Tests | JUnit 6, Mockito 5.23, AssertJ, Spring Security Test, **Testcontainers 2.0.5** |
+| Tests | JUnit 6, Mockito 5.23, AssertJ, Spring Security Test, **Testcontainers 2.0.5**, **Awaitility 4.3.0** |
 | Build | Maven (wrapper `mvnw` fourni) |
 
 Choix volontaires : **pas de Lombok** (getters/setters écrits à la main), **DTO en `record`**, injection par
@@ -112,7 +113,7 @@ constructeur, exceptions Java standard traduites en HTTP par un gestionnaire glo
 ### Prérequis
 
 - **JDK 27** (la propriété `java.version` du `pom.xml` vaut 27)
-- **Docker** avec Docker Compose (pour MongoDB, et pour le test de bout en bout)
+- **Docker** avec Docker Compose (pour MongoDB, et pour les tests Testcontainers : bout en bout et scheduling)
 - Aucune installation Maven nécessaire : utiliser `mvnw` / `mvnw.cmd`
 
 ### 1. Démarrer MongoDB
@@ -170,6 +171,7 @@ Fichier : `src/main/resources/application.properties`.
 | `spring.data.mongodb.auto-index-creation` | `true` | **nécessaire** pour créer l'index unique sur l'email |
 | `gestionfioul.admin.email` | `admin@gestionfioul.local` | email du compte admin créé au démarrage |
 | `gestionfioul.admin.password` | `${ADMIN_PASSWORD:12345678}` | mot de passe de l'admin ; **vide = aucun admin créé** |
+| `gestionfioul.campagnes.cloture-automatique.intervalle-ms` | `300000` (5 min) | fréquence à laquelle `CampagneScheduler` clôture les campagnes échues |
 
 ### Variables d'environnement
 
@@ -217,6 +219,7 @@ src/main/java/fr/limoges/valadon/gestionfioul
 │   ├─ Campagne, StatutCampagne
 │   ├─ CampagneRepository
 │   ├─ CampagneService            créer, ouvrir, clôturer, attribuer, livrer, annuler
+│   ├─ CampagneScheduler          @Scheduled : clôture automatique des campagnes échues
 │   ├─ CampagneController
 │   └─ CreerCampagneRequest
 │
@@ -348,8 +351,8 @@ Elles sont implémentées dans les **services** (et couvertes par les tests unit
 - Ouverture : depuis `BROUILLON` uniquement, et seulement si la date de clôture n'est pas passée.
 - Clôture : depuis `OUVERTE` uniquement ; **recalcule** `volumeTotal` = somme des participations `CONFIRMEE`
   (les annulées sont exclues), puis le fige.
-- `cloturerCampagnesEchues()` clôture toutes les campagnes `OUVERTE` dont la date limite est passée
-  (⚠️ pas planifiée automatiquement, voir [§15](#15-limites-connues-et-pistes-daméliorations)).
+- `cloturerCampagnesEchues()` clôture toutes les campagnes `OUVERTE` dont la date limite est passée. Elle est
+  déclenchée automatiquement par `CampagneScheduler` (voir ci-dessous) ; elle reste aussi appelable directement.
 - Attribution : depuis `CLOTUREE` uniquement ; livraison : depuis `ATTRIBUEE` uniquement.
 - Annulation : impossible si `LIVREE` ou déjà `ANNULEE`.
 - Toute transition depuis un mauvais statut lève une `IllegalStateException` (→ HTTP 409).
@@ -381,6 +384,30 @@ Elles sont implémentées dans les **services** (et couvertes par les tests unit
 4. La **moins chère** l'emporte ; **à prix égal, la première soumise** (date de proposition).
 5. La gagnante passe à `RETENUE`, **toutes les autres** propositions `SOUMISE` (y compris les expirées) à `REJETEE`.
 6. La campagne passe à `ATTRIBUEE` avec `propositionRetenueId`.
+
+### Clôture automatique (`CampagneScheduler`)
+
+Le **scheduling**, c'est exécuter du code automatiquement à intervalles réguliers, sans qu'une requête HTTP ne le
+déclenche : un thread interne à l'application se réveille selon un rythme défini et appelle une méthode. Spring
+fournit ce mécanisme avec deux éléments :
+
+- `@EnableScheduling` sur `GestionfioulApplication`, qui active le mécanisme dans toute l'application ;
+- `@Scheduled` sur `CampagneScheduler.cloturerLesCampagnesEchues()`, qui appelle
+  `CampagneService.cloturerCampagnesEchues()` au rythme défini par `gestionfioul.campagnes.cloture-automatique.intervalle-ms`
+  (5 minutes par défaut).
+
+```java
+@Scheduled(fixedDelayString = "${gestionfioul.campagnes.cloture-automatique.intervalle-ms:300000}")
+public void cloturerLesCampagnesEchues() { ... }
+```
+
+- **`fixedDelay` plutôt que `fixedRate`** : le délai est compté à partir de la **fin** de l'exécution précédente, pas
+  de son début. Deux exécutions ne peuvent donc jamais se chevaucher, même si la clôture de plusieurs campagnes prend
+  plus de temps que l'intervalle configuré.
+- Sans ce composant, une campagne dont la date limite est passée serait restée `OUVERTE` tant qu'un administrateur
+  n'aurait pas cliqué sur « clôturer » (la date limite reste malgré tout vérifiée à chaque participation ou
+  proposition, voir ci-dessus, donc aucune commande ne pouvait passer en retard entre-temps).
+- Un log est émis (niveau `INFO`) uniquement quand des campagnes ont effectivement été clôturées.
 
 ---
 
@@ -606,13 +633,14 @@ docker exec -it gestionfioul-mongo mongosh -u root -p root --authenticationDatab
 
 ## 13. Tests
 
-**202 tests**, tous verts au dernier lancement.
+**205 tests**, tous verts au dernier lancement.
 
 ```bash
 ./mvnw test                                   # toute la suite
 ./mvnw -Dtest='*ServiceTest' test             # tests unitaires des services
 ./mvnw -Dtest='*ControllerTest' test          # tests des contrôleurs
 ./mvnw -Dtest='ParcoursCommandeGroupeeTest' test   # test de bout en bout
+./mvnw -Dtest='CampagneSchedulerTest' test    # test du scheduling
 ```
 
 | Type | Fichiers | Tests | Base de données | Ce que ça vérifie |
@@ -625,7 +653,8 @@ docker exec -it gestionfioul-mongo mongosh -u root -p root --authenticationDatab
 | | `CampagneControllerTest` | 21 | — | idem + champs réservés ignorés à la création |
 | | `ParticipationControllerTest` | 13 | — | identité tirée de la session, `/api/moi/...` |
 | | `PropositionControllerTest` | 11 | — | confidentialité des barèmes, identité du fournisseur |
-| Bout en bout (Testcontainers) | `ParcoursCommandeGroupeeTest` | 7 | **vrai MongoDB** | parcours complet, vraie authentification, index unique, aller-retour des données, clôture automatique |
+| Bout en bout (Testcontainers) | `ParcoursCommandeGroupeeTest` | 7 | **vrai MongoDB** | parcours complet via l'API, vraie authentification, index unique, aller-retour des données, appel direct de `cloturerCampagnesEchues()` |
+| Scheduling (Testcontainers + Awaitility) | `CampagneSchedulerTest` | 3 | **vrai MongoDB** | clôture **spontanée** d'une campagne échue par le `@Scheduled`, sans appeler l'API ni le service |
 | Contexte Spring | `GestionfioulApplicationTests` | 1 | pile Docker Compose | l'application démarre |
 
 ### Les tests unitaires
@@ -658,6 +687,21 @@ Bob participent, Alice est refusée à sa 2ᵉ tentative → Bob annule et recom
 (volume 7 000 L, la participation annulée est exclue) → attribution au barème à 1,02 €/L → statuts vus par chaque
 fournisseur → livraison → vérification de l'état final en base.
 
+### Le test du scheduling
+
+`CampagneSchedulerTest` vérifie que `@Scheduled` fonctionne **réellement**, sans jamais appeler
+`cloturerCampagnesEchues()` à la main : seules des campagnes sont insérées directement en base, puis on attend que le
+scheduler agisse tout seul.
+
+- L'intervalle est réduit à **200 ms** via une propriété du test
+  (`gestionfioul.campagnes.cloture-automatique.intervalle-ms=200`), pour que le test dure quelques secondes plutôt
+  que 5 minutes.
+- **Awaitility** (`await().atMost(...).untilAsserted(...)`) interroge la base à intervalles rapprochés jusqu'à ce que
+  la condition soit vraie ou que le délai maximal soit dépassé — plus fiable qu'un `Thread.sleep` suivi d'une seule
+  vérification.
+- Trois cas : une campagne `OUVERTE` échue finit par passer `CLOTUREE` ; une campagne `OUVERTE` pas encore échue reste
+  `OUVERTE` ; une campagne `BROUILLON` échue n'est pas touchée (le scheduler ne clôture que les campagnes `OUVERTE`).
+
 ### Validation de l'efficacité des tests
 
 Pour s'assurer que les tests détectent réellement des régressions, des **modifications volontaires** ont été
@@ -669,8 +713,9 @@ introduites dans le code de production, puis annulées :
 | acceptation d'un volume de 0 | `participer_volume_invalide_refuse` |
 | retrait d'un `@PreAuthorize` sur la liste des propositions | `lister_par_campagne_reserve_a_l_admin` (403 attendu, 200 obtenu) |
 | identité du client codée en dur | `participer_ignore_le_client_de_la_requete`, `participer_par_un_client` |
-| volume calculé avec les participations annulées | `parcours_complet…` (7000 attendu, 12000 obtenu) et `cloture_automatique…` |
+| volume calculé avec les participations annulées | `parcours_complet…` (7000 attendu, 12000 obtenu) et `cloture_automatique_des_campagnes_echues` |
 | suppression de l'index unique sur l'email | `index_unique_sur_l_email` |
+| retrait de l'annotation `@Scheduled` sur `CampagneScheduler` | `campagne_echue_cloturee_automatiquement` (timeout Awaitility au lieu de passer) |
 
 ### Notes
 
@@ -742,9 +787,6 @@ MongoDB sur 27018 et mongo-express sur 8083 : la machine de développement hébe
 - **Aucune limitation des tentatives de connexion** (pas de protection contre la force brute).
 
 ### Fonctionnel
-- **La clôture automatique n'est pas planifiée** : `cloturerCampagnesEchues()` existe mais rien ne l'appelle.
-  Il faut `@EnableScheduling` et une méthode `@Scheduled`. En attendant, la date limite est tout de même vérifiée à
-  chaque participation ou proposition.
 - **Pas de modification ni de retrait** d'une proposition, ni de modification d'une participation (annuler puis recréer).
 - **Pas de notification** (email) aux participants.
 - **Pas de propriétaire de campagne** : tout `ADMIN` peut gérer toutes les campagnes (pas de champ `createurId`).
@@ -762,6 +804,11 @@ MongoDB sur 27018 et mongo-express sur 8083 : la machine de développement hébe
 - **Comparaisons de prix en Java** : les prix sont des `BigDecimal` ; les requêtes MongoDB ne comparent pas les prix.
   Le stockage d'un `BigDecimal` par Spring Data MongoDB suit son comportement par défaut (un aller-retour fidèle est
   vérifié par un test).
+- **Scheduling non distribué** : `@Scheduled` s'exécute sur **chaque instance** de l'application. Avec une seule
+  instance (le cas ici), aucun souci ; avec plusieurs instances en parallèle, `cloturerCampagnesEchues()` s'exécuterait
+  sur chacune. Ce n'est pas dangereux ici (`cloturer` vérifie le statut avant d'agir, une seconde exécution sur une
+  campagne déjà `CLOTUREE` échouerait proprement), mais ce serait du travail redondant. Un verrou distribué
+  (ShedLock, par exemple) serait la solution standard.
 
 ### Couverture de test
 - Non couverts par les tests automatiques : les routes Swagger, un vrai appel réseau HTTP (le bout en bout passe par
@@ -808,6 +855,8 @@ Le projet a été construit pas à pas, dans l'ordre suivant :
 11. **Tests unitaires** des quatre services (138 tests).
 12. **Tests d'intégration** des quatre contrôleurs (56 tests).
 13. **Test de bout en bout** avec Testcontainers (7 tests).
+14. **Scheduling de la clôture automatique** : `@EnableScheduling` + `CampagneScheduler` (`@Scheduled`), et son test
+    dédié avec Testcontainers et Awaitility (3 tests).
 
 À chaque étape de test, des sabotages volontaires du code ont servi à vérifier que les tests échouent bien quand une
 règle est cassée (voir [§13](#13-tests)).
@@ -831,7 +880,7 @@ gestionfioul/
       ├─ e2e/ParcoursCommandeGroupeeTest.java
       ├─ security/UtilisateursDeTest.java
       ├─ user/            UserServiceTest, UserControllerTest
-      ├─ campagne/        CampagneServiceTest, CampagneControllerTest
+      ├─ campagne/        CampagneServiceTest, CampagneControllerTest, CampagneSchedulerTest
       ├─ participation/   ParticipationServiceTest, ParticipationControllerTest
       └─ proposition/     PropositionServiceTest, PropositionControllerTest
 ```
