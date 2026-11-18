@@ -97,10 +97,10 @@ stateDiagram-v2
 | Web | `spring-boot-starter-webmvc` (API REST, Jackson 3) |
 | Base de données | MongoDB **8.0.9** via `spring-boot-starter-data-mongodb` |
 | Sécurité | Spring Security — **HTTP Basic**, sessions désactivées, mots de passe **BCrypt** |
-| Documentation | springdoc-openapi **3.1.1** (Swagger UI) |
+| Documentation | springdoc-openapi **3.1.1** (Swagger UI) pour les utilisateurs de l'API ; **Javadoc** + site Maven (`maven-site-plugin` 3.22.0) pour le code |
 | Planification | Spring Scheduling (`@EnableScheduling` / `@Scheduled`) — clôture automatique des campagnes échues |
 | Conteneurs | Docker Compose (MongoDB + mongo-express) |
-| Tests | JUnit 6, Mockito 5.23, AssertJ, Spring Security Test, **Testcontainers 2.0.5**, **Awaitility 4.3.0** |
+| Tests | JUnit 6, Mockito 5.23, AssertJ, Spring Security Test, **Testcontainers 2.0.5**, **Awaitility 4.3.0**, couverture **JaCoCo 0.8.16** |
 | Build | Maven (wrapper `mvnw` fourni) |
 
 Choix volontaires : **pas de Lombok** (getters/setters écrits à la main), **DTO en `record`**, injection par
@@ -211,7 +211,7 @@ src/main/java/fr/limoges/valadon/gestionfioul
 │   ├─ Role                       ADMIN | CLIENT | FOURNISSEUR
 │   ├─ UserRepository
 │   ├─ UserService                inscription, hachage du mot de passe
-│   ├─ UserController             POST /api/users, GET /api/users/{id}
+│   ├─ UserController             POST /api/users, GET /api/users/moi, GET /api/users/{id}
 │   ├─ InscriptionRequest         DTO d'entrée (record)
 │   └─ UserResponse               DTO de sortie, sans mot de passe (record)
 │
@@ -430,6 +430,7 @@ Les droits sont posés par `@PreAuthorize` directement sur les méthodes des con
 |---|:-:|:-:|:-:|:-:|
 | `POST /api/users` (inscription) | ✅ | ✅ | ✅ | ✅ |
 | Swagger (`/swagger-ui/**`, `/v3/api-docs/**`) | ✅ | ✅ | ✅ | ✅ |
+| `GET /api/users/moi` | ❌ | ✅ | ✅ | ✅ |
 | `GET /api/users/{id}` | ❌ | soi-même | soi-même | ✅ tous |
 | `GET /api/campagnes`, `GET /api/campagnes/{id}` | ❌ | ✅ | ✅ | ✅ |
 | `POST /api/campagnes` et `/{id}/ouvrir`, `/cloturer`, `/livrer`, `/annuler` | ❌ | ❌ | ❌ | ✅ |
@@ -470,6 +471,7 @@ Base : `http://localhost:9999`. Corps et réponses en JSON. Dates au format ISO-
 | Méthode | Route | Corps | Réponse |
 |---|---|---|---|
 | `POST` | `/api/users` | `{email, motDePasse, nom, prenom, telephone, role, adresse, raisonSociale}` | `201` `UserResponse` |
+| `GET` | `/api/users/moi` | — | `200` `UserResponse` de l'utilisateur connecté |
 | `GET` | `/api/users/{id}` | — | `200` `UserResponse` |
 
 `role` : `CLIENT` ou `FOURNISSEUR` (`ADMIN` refusé). `raisonSociale` obligatoire pour un fournisseur.
@@ -592,6 +594,37 @@ curl -s -u alice@test.fr:motdepasse1  $BASE/api/moi/participations
   envoie sur toutes les requêtes.
 - `OpenApiConfig` (package `common`) fournit le titre, la description et le schéma d'authentification.
 
+### Documentation technique du code (Javadoc + site Maven)
+
+Swagger documente l'API pour ceux qui l'**appellent** ; la Javadoc documente le **code** pour ceux qui le
+maintiennent. Les deux sont réunies avec les résultats des tests et la couverture dans un site généré par Maven :
+
+```bash
+./mvnw clean verify site      # Docker doit tourner (Testcontainers)
+```
+
+puis ouvrir `target/site/index.html` :
+
+| Page | Contenu |
+|---|---|
+| Accueil (`src/site/markdown/index.md`) | présentation, rôle des packages, découpage document / repository / service / contrôleur |
+| Javadoc (`apidocs/`) | chaque package (`package-info.java`), classe et méthode publique : règles métier et exceptions des services (`@throws`), route, rôle et codes HTTP des contrôleurs, requêtes dérivées des repositories |
+| Résultats des tests (`surefire.html`) | les 212 tests et leur durée |
+| Couverture (`jacoco/`) | le rapport JaCoCo |
+| Dépendances (`dependencies.html`) | bibliothèques et versions |
+
+Réglages (`pom.xml`, section `<reporting>`) :
+- `<doclint>all,-missing</doclint>` : la syntaxe des commentaires est vérifiée, sans exiger un commentaire sur
+  chaque getter ;
+- `<failOnWarnings>true</failOnWarnings>` : un commentaire faux (`@param` inconnu, `{@link}` cassé, HTML mal
+  formé) fait échouer la génération ;
+- Surefire en `report-only` : les tests ne sont pas relancés une seconde fois ;
+- l'exclusion de `GestionfioulApplication` est **répétée** pour JaCoCo : la configuration de `<build>` ne
+  s'applique pas à `<reporting>`.
+
+`clean` est nécessaire : le plugin Javadoc ne détecte pas toujours la modification d'un commentaire
+(il ne compare que la date du dossier `src/main/java`) et garderait une Javadoc périmée.
+
 ---
 
 ## 12. Docker Compose
@@ -633,7 +666,7 @@ docker exec -it gestionfioul-mongo mongosh -u root -p root --authenticationDatab
 
 ## 13. Tests
 
-**205 tests**, tous verts au dernier lancement.
+**212 tests**, tous verts au dernier lancement. Couverture mesurée par **JaCoCo** : 98,0 % des lignes, 100 % des branches (voir plus bas).
 
 ```bash
 ./mvnw test                                   # toute la suite
@@ -649,13 +682,14 @@ docker exec -it gestionfioul-mongo mongosh -u root -p root --authenticationDatab
 | | `CampagneServiceTest` | 41 | simulée | chaque transition de statut, calcul et gel du volume, clôture des campagnes échues |
 | | `ParticipationServiceTest` | 28 | simulée | volume, rôle, campagne fermée ou échue, doublon, propriété de la participation |
 | | `PropositionServiceTest` | 47 | simulée | 11 barèmes invalides, tri, `prixPour` aux bornes, moins-disante, départage, expirées |
-| Contrôleurs (`@WebMvcTest`) | `UserControllerTest` | 11 | — (services simulés) | droits par rôle, DTO, erreurs 400/401/403/404/409 |
+| Contrôleurs (`@WebMvcTest`) | `UserControllerTest` | 14 | — (services simulés) | droits par rôle, DTO, erreurs 400/401/403/404/409 |
 | | `CampagneControllerTest` | 21 | — | idem + champs réservés ignorés à la création |
 | | `ParticipationControllerTest` | 13 | — | identité tirée de la session, `/api/moi/...` |
 | | `PropositionControllerTest` | 11 | — | confidentialité des barèmes, identité du fournisseur |
 | Bout en bout (Testcontainers) | `ParcoursCommandeGroupeeTest` | 7 | **vrai MongoDB** | parcours complet via l'API, vraie authentification, index unique, aller-retour des données, appel direct de `cloturerCampagnesEchues()` |
 | Scheduling (Testcontainers + Awaitility) | `CampagneSchedulerTest` | 3 | **vrai MongoDB** | clôture **spontanée** d'une campagne échue par le `@Scheduled`, sans appeler l'API ni le service |
 | Contexte Spring | `GestionfioulApplicationTests` | 1 | pile Docker Compose | l'application démarre |
+| Unitaire (Mockito) | `AdminInitializerTest` | 4 | simulée | création du compte admin au démarrage : mot de passe vide, admin déjà présent, premier démarrage |
 
 ### Les tests unitaires
 
@@ -701,6 +735,40 @@ scheduler agisse tout seul.
   vérification.
 - Trois cas : une campagne `OUVERTE` échue finit par passer `CLOTUREE` ; une campagne `OUVERTE` pas encore échue reste
   `OUVERTE` ; une campagne `BROUILLON` échue n'est pas touchée (le scheduler ne clôture que les campagnes `OUVERTE`).
+
+### Couverture de code (JaCoCo)
+
+Le plugin **JaCoCo 0.8.16** (`pom.xml`) mesure les lignes et les branches de l'API exécutées par les tests :
+
+```bash
+./mvnw test      # tests + rapport HTML : target/site/jacoco/index.html
+./mvnw verify    # + contrôle des seuils : la build échoue sous 95 % de lignes ou 95 % de branches
+```
+
+- `prepare-agent` ajoute un agent Java à la JVM des tests (propriété `argLine` lue par Surefire) ; `report` est
+  rattaché à la phase `test`, `check` à la phase `verify`.
+- `GestionfioulApplication` (méthode `main`) est exclue du rapport.
+- Les tests Testcontainers (bout en bout, scheduling) sont **inclus** dans la mesure : Docker doit être disponible.
+
+Résultat (212 tests) : **98,0 % des lignes** (442 / 451), **100 % des branches** (112 / 112).
+
+| Package | Lignes | Branches |
+|---|---:|---:|
+| `campagne`, `common`, `user` | 100 % | 100 % |
+| `security` | 97,9 % | 100 % |
+| `participation` | 97,3 % | 100 % |
+| `proposition` | 95,2 % | 100 % |
+
+Ce que le premier rapport (208 tests : 97,6 % des lignes, 99,1 % des branches) a mis en évidence :
+
+| Constat | Décision |
+|---|---|
+| `AdminInitializer` : la branche « `ADMIN_PASSWORD` vide → aucun compte admin créé » n'était jamais exécutée (les tests démarrent toujours avec un mot de passe) | ajout de `AdminInitializerTest` (4 tests unitaires) |
+| `PropositionService.trouverParId` n'est appelée **que par un test**, jamais par le code de l'API (code mort) ; sa ligne est jaune car seul le cas « introuvable » est testé : l'exception interrompt la ligne avant le `return` | laissée en l'état ; à supprimer ou à utiliser (piste d'amélioration) |
+| setters `Participation.setDateParticipation`, `Palier.setVolumeMin/setVolumeMax/setPrixLitre` et `UtilisateurConnecte.getRole()` jamais appelés (Spring Data MongoDB remplit les champs directement) | les 9 seules lignes non couvertes ; sans enjeu |
+
+La couverture dit ce qui est **exécuté**, pas ce qui est **vérifié** : les sabotages volontaires ci-dessous restent
+la meilleure preuve de l'efficacité des tests.
 
 ### Validation de l'efficacité des tests
 
@@ -831,6 +899,8 @@ MongoDB sur 27018 et mongo-express sur 8083 : la machine de développement hébe
 | Le test de bout en bout est « skipped » | Docker indisponible | démarrer Docker Desktop |
 | `GestionfioulApplicationTests` échoue | pile Docker Compose arrêtée | `docker compose up -d` |
 | Avertissement Mockito « self-attaching » | comportement attendu de Mockito sur les JDK récents | sans conséquence pour l'instant |
+| `./mvnw site` échoue : `error: unknown tag`, `@param name not found`, `reference not found` | commentaire Javadoc incorrect (ligne qui commence par `@Annotation`, paramètre renommé, `{@link}` vers une classe inconnue) | corriger le commentaire indiqué ; écrire le code en `{@code …}` |
+| Un commentaire Javadoc corrigé n'apparaît pas dans `target/site/apidocs` | le plugin Javadoc n'a pas détecté la modification | `./mvnw clean verify site` |
 | `curl` ne fonctionne pas sous PowerShell | `curl` y est un alias d'`Invoke-WebRequest` | utiliser Git Bash, `curl.exe`, ou Swagger UI |
 
 ---
@@ -857,6 +927,12 @@ Le projet a été construit pas à pas, dans l'ordre suivant :
 13. **Test de bout en bout** avec Testcontainers (7 tests).
 14. **Scheduling de la clôture automatique** : `@EnableScheduling` + `CampagneScheduler` (`@Scheduled`), et son test
     dédié avec Testcontainers et Awaitility (3 tests).
+15. **Route `GET /api/users/moi`** : profil de l'utilisateur connecté, ajoutée pour l'interface web `gestionweb`
+    (vérification des identifiants à la connexion et lecture du rôle) ; 3 tests de contrôleur.
+16. **Couverture de code avec JaCoCo** : rapport HTML à chaque `./mvnw test`, seuils (95 % lignes et branches) vérifiés par
+    `./mvnw verify` ; le rapport a fait ajouter `AdminInitializerTest` (4 tests).
+17. **Documentation technique** : Javadoc de toutes les classes publiques et un `package-info.java` par package ;
+    site Maven (`./mvnw clean verify site`) réunissant Javadoc, résultats des tests et couverture.
 
 À chaque étape de test, des sabotages volontaires du code ont servi à vérifier que les tests échouent bien quand une
 règle est cassée (voir [§13](#13-tests)).
@@ -873,12 +949,15 @@ gestionfioul/
 ├─ README.md
 └─ src/
    ├─ main/
-   │  ├─ java/fr/limoges/valadon/gestionfioul/   (voir §5)
+   │  ├─ java/fr/limoges/valadon/gestionfioul/   (voir §5 ; un package-info.java par package)
    │  └─ resources/application.properties
+   ├─ site/                                      (documentation technique, §11)
+   │  ├─ site.xml                                   menu et apparence
+   │  └─ markdown/index.md                          page d'accueil
    └─ test/java/fr/limoges/valadon/gestionfioul/
       ├─ GestionfioulApplicationTests.java
       ├─ e2e/ParcoursCommandeGroupeeTest.java
-      ├─ security/UtilisateursDeTest.java
+      ├─ security/UtilisateursDeTest.java, AdminInitializerTest.java
       ├─ user/            UserServiceTest, UserControllerTest
       ├─ campagne/        CampagneServiceTest, CampagneControllerTest, CampagneSchedulerTest
       ├─ participation/   ParticipationServiceTest, ParticipationControllerTest

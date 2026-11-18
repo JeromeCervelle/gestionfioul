@@ -9,8 +9,10 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.security.SecurityScheme;
 
 /**
- * Métadonnées de la documentation Swagger. Le bouton "Authorize" de Swagger UI
- * envoie l'email et le mot de passe en HTTP Basic, comme le fait l'API.
+ * Métadonnées de la documentation Swagger ({@code /swagger-ui.html}, {@code /v3/api-docs}).
+ *
+ * <p>Le bouton « Authorize » de Swagger UI envoie l'email et le mot de passe en HTTP Basic,
+ * comme le fait l'API.</p>
  */
 @Configuration
 @OpenAPIDefinition(

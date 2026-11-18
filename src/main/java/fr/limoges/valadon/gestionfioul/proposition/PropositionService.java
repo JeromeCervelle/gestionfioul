@@ -17,6 +17,11 @@ import fr.limoges.valadon.gestionfioul.user.Role;
 import fr.limoges.valadon.gestionfioul.user.User;
 import fr.limoges.valadon.gestionfioul.user.UserService;
 
+/**
+ * Règles métier des propositions : dépôt d'un barème cohérent et choix de la moins-disante.
+ *
+ * <p>Les exceptions sont traduites en HTTP par {@link fr.limoges.valadon.gestionfioul.common.GestionExceptionHandler GestionExceptionHandler}.</p>
+ */
 @Service
 public class PropositionService {
 
@@ -24,6 +29,13 @@ public class PropositionService {
     private final CampagneService campagneService;
     private final UserService userService;
 
+    /**
+     * Crée le service.
+     *
+     * @param propositionRepository accès aux propositions
+     * @param campagneService       pour vérifier le statut de la campagne et l'attribuer
+     * @param userService           pour vérifier le rôle du fournisseur
+     */
     public PropositionService(PropositionRepository propositionRepository,
                               CampagneService campagneService,
                               UserService userService) {
@@ -32,6 +44,19 @@ public class PropositionService {
         this.userService = userService;
     }
 
+    /**
+     * Enregistre le barème d'un fournisseur, paliers triés par volume.
+     *
+     * @param campagneId     identifiant de la campagne
+     * @param fournisseurId  identifiant du fournisseur connecté
+     * @param validiteJusqua date jusqu'à laquelle les prix sont garantis, postérieure à la clôture
+     * @param paliers        paliers du barème : de 0 L, sans trou ni chevauchement, le dernier sans limite
+     * @return la proposition enregistrée, au statut {@code SOUMISE}
+     * @throws IllegalArgumentException utilisateur qui n'est pas un fournisseur, validité trop courte,
+     *                                  paliers incohérents ou prix non positif
+     * @throws NoSuchElementException   fournisseur ou campagne inexistants
+     * @throws IllegalStateException    campagne fermée, ou proposition déjà soumise par ce fournisseur
+     */
     public Proposition soumettre(String campagneId, String fournisseurId,
                                  LocalDateTime validiteJusqua, List<Palier> paliers) {
         User fournisseur = userService.trouverParId(fournisseurId);
@@ -64,9 +89,16 @@ public class PropositionService {
     }
 
     /**
-     * Choisit la moins-disante parmi les propositions soumises et encore valables, au volumeTotal
+     * Choisit la moins-disante parmi les propositions soumises et encore valables, au {@code volumeTotal}
      * figé de la campagne. À prix égal, la première soumise l'emporte.
-     * La retenue passe à RETENUE, toutes les autres propositions soumises à REJETEE.
+     *
+     * <p>La retenue passe à {@code RETENUE}, toutes les autres propositions soumises à {@code REJETEE},
+     * et la campagne passe à {@code ATTRIBUEE}.</p>
+     *
+     * @param campagneId identifiant de la campagne
+     * @return la proposition retenue
+     * @throws NoSuchElementException campagne inexistante
+     * @throws IllegalStateException  campagne pas clôturée, volume total nul, ou aucune proposition valable
      */
     public Proposition retenirMeilleure(String campagneId) {
         Campagne campagne = campagneService.trouverParId(campagneId);
@@ -98,6 +130,10 @@ public class PropositionService {
     /**
      * Prix au litre du palier qui contient ce volume, appliqué à tout le volume
      * (le tarif ne s'applique pas tranche par tranche).
+     *
+     * @param proposition barème à appliquer
+     * @param volume      volume en litres
+     * @return le prix au litre, ou un {@code Optional} vide si aucun palier ne contient ce volume
      */
     public Optional<BigDecimal> prixPour(Proposition proposition, int volume) {
         return proposition.getPaliers().stream()
@@ -107,15 +143,36 @@ public class PropositionService {
                 .findFirst();
     }
 
+    /**
+     * Cherche une proposition par son id.
+     *
+     * <p>N'est appelée par aucune route : seul un test l'utilise (code mort repéré par JaCoCo).</p>
+     *
+     * @param id identifiant
+     * @return la proposition
+     * @throws NoSuchElementException si elle n'existe pas
+     */
     public Proposition trouverParId(String id) {
         return propositionRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Proposition introuvable : " + id));
     }
 
+    /**
+     * Toutes les propositions d'une campagne.
+     *
+     * @param campagneId identifiant de la campagne
+     * @return les propositions, quel que soit leur statut
+     */
     public List<Proposition> listerParCampagne(String campagneId) {
         return propositionRepository.findByCampagneId(campagneId);
     }
 
+    /**
+     * Propositions d'un fournisseur.
+     *
+     * @param fournisseurId identifiant du fournisseur
+     * @return ses propositions, toutes campagnes confondues
+     */
     public List<Proposition> listerParFournisseur(String fournisseurId) {
         return propositionRepository.findByFournisseurId(fournisseurId);
     }

@@ -7,7 +7,11 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 /**
- * Engagement d'un client dans une campagne : le volume de fioul qu'il souhaite commander.
+ * Engagement d'un client dans une campagne : le volume de fioul qu'il souhaite commander
+ * (document MongoDB de la collection {@code participations}).
+ *
+ * <p>La participation ne contient que les IDENTIFIANTS de la campagne et du client (références, pas de copie).
+ * Le volume est en litres ; l'adresse de livraison peut différer de celle du profil.</p>
  */
 @Document(collection = "participations")
 public class Participation {

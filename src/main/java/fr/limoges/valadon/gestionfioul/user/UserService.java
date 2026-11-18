@@ -5,6 +5,11 @@ import java.util.NoSuchElementException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+/**
+ * Règles métier des comptes utilisateurs.
+ *
+ * <p>Les erreurs sont levées sous forme d'exceptions standard, traduites en HTTP par {@link fr.limoges.valadon.gestionfioul.common.GestionExceptionHandler GestionExceptionHandler}.</p>
+ */
 @Service
 public class UserService {
 
@@ -18,6 +23,14 @@ public class UserService {
         this.passwordEncoder = passwordEncoder;
     }
 
+    /**
+     * Inscrit un utilisateur : contrôle les données, met l'email en minuscules, hache le mot de passe.
+     *
+     * @param user utilisateur à créer, mot de passe en clair
+     * @return l'utilisateur enregistré, avec son id
+     * @throws IllegalArgumentException email absent, mot de passe trop court (moins de 8 caractères),
+     *         rôle absent, raison sociale absente pour un fournisseur, email déjà utilisé
+     */
     public User inscrire(User user) {
         if (isBlank(user.getEmail())) {
             throw new IllegalArgumentException("L'email est obligatoire");
@@ -45,11 +58,25 @@ public class UserService {
         return userRepository.save(user);
     }
 
+    /**
+     * Cherche un utilisateur par son id.
+     *
+     * @param id identifiant
+     * @return l'utilisateur
+     * @throws NoSuchElementException si l'utilisateur n'existe pas
+     */
     public User trouverParId(String id) {
         return userRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Utilisateur introuvable : " + id));
     }
 
+    /**
+     * Cherche un utilisateur par son email (sans tenir compte de la casse ni des espaces autour).
+     *
+     * @param email email
+     * @return l'utilisateur
+     * @throws NoSuchElementException si aucun compte n'a cet email
+     */
     public User trouverParEmail(String email) {
         return userRepository.findByEmail(email.trim().toLowerCase())
                 .orElseThrow(() -> new NoSuchElementException("Utilisateur introuvable : " + email));

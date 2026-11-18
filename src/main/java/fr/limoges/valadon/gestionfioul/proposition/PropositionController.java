@@ -15,6 +15,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import fr.limoges.valadon.gestionfioul.security.UtilisateurConnecte;
 
+/**
+ * Routes des propositions et de l'attribution.
+ *
+ * <p>Le fournisseur est toujours l'utilisateur connecté ({@code @AuthenticationPrincipal}).
+ * Les barèmes des concurrents restent confidentiels : seul l'administrateur voit toutes les propositions.</p>
+ */
 @RestController
 @RequestMapping("/api")
 public class PropositionController {
@@ -25,7 +31,15 @@ public class PropositionController {
         this.propositionService = propositionService;
     }
 
-    // le fournisseur est celui qui est connecté : on ne lit jamais son id dans la requête
+    /**
+     * {@code POST /api/campagnes/{campagneId}/propositions} (fournisseur) : déposer un barème.
+     *
+     * @param campagneId  identifiant de la campagne
+     * @param request     date de validité et paliers
+     * @param utilisateur fournisseur connecté
+     * @return la proposition créée (201) ; 400 si le barème ou la validité sont invalides,
+     *         409 si la campagne n'est pas ouverte ou si le fournisseur a déjà proposé
+     */
     @PostMapping("/campagnes/{campagneId}/propositions")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('FOURNISSEUR')")
@@ -36,20 +50,38 @@ public class PropositionController {
                 campagneId, utilisateur.getId(), request.validiteJusqua(), request.paliers());
     }
 
-    // les barèmes des concurrents restent confidentiels : réservé à l'admin
+    /**
+     * {@code GET /api/campagnes/{campagneId}/propositions} (administrateur).
+     *
+     * @param campagneId identifiant de la campagne
+     * @return les propositions de tous les fournisseurs
+     */
     @GetMapping("/campagnes/{campagneId}/propositions")
     @PreAuthorize("hasRole('ADMIN')")
     public List<Proposition> listerParCampagne(@PathVariable String campagneId) {
         return propositionService.listerParCampagne(campagneId);
     }
 
+    /**
+     * {@code GET /api/moi/propositions} (fournisseur).
+     *
+     * @param utilisateur fournisseur connecté
+     * @return ses propositions, toutes campagnes confondues
+     */
     @GetMapping("/moi/propositions")
     @PreAuthorize("hasRole('FOURNISSEUR')")
     public List<Proposition> mesPropositions(@AuthenticationPrincipal UtilisateurConnecte utilisateur) {
         return propositionService.listerParFournisseur(utilisateur.getId());
     }
 
-    // choisit la moins-disante d'une campagne clôturée et l'attribue
+    /**
+     * {@code POST /api/campagnes/{campagneId}/attribution} (administrateur) : choisit la moins-disante
+     * d'une campagne clôturée et l'attribue.
+     *
+     * @param campagneId identifiant de la campagne
+     * @return la proposition retenue ; 409 si la campagne n'est pas clôturée, si aucun volume n'est commandé
+     *         ou si aucune proposition n'est valable
+     */
     @PostMapping("/campagnes/{campagneId}/attribution")
     @PreAuthorize("hasRole('ADMIN')")
     public Proposition attribuer(@PathVariable String campagneId) {

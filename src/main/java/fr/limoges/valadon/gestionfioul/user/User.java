@@ -5,7 +5,15 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 /**
- * Utilisateur de la plateforme : client ou fournisseur selon son rôle.
+ * Utilisateur de la plateforme : client, fournisseur ou administrateur selon son rôle
+ * (document MongoDB de la collection {@code users}).
+ *
+ * <ul>
+ *   <li>l'email est unique (index MongoDB) et enregistré en minuscules ;</li>
+ *   <li>le mot de passe est stocké haché (BCrypt), jamais en clair ;</li>
+ *   <li>l'adresse est celle de livraison pour un client, du siège pour un fournisseur ;</li>
+ *   <li>la raison sociale ne concerne que les fournisseurs.</li>
+ * </ul>
  */
 @Document(collection = "users")
 public class User {

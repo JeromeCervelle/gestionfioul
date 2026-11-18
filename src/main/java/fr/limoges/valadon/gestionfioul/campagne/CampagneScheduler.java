@@ -9,8 +9,10 @@ import org.springframework.stereotype.Component;
 
 /**
  * Déclenche périodiquement la clôture des campagnes dont la date limite est dépassée.
- * Sans ce composant, CampagneService.cloturerCampagnesEchues() existe mais n'est appelée par personne :
- * une campagne resterait OUVERTE indéfiniment après sa date limite, tant qu'un admin ne la clôture pas à la main.
+ *
+ * <p>Sans ce composant, {@link CampagneService#cloturerCampagnesEchues()} existe mais n'est appelée par personne :
+ * une campagne resterait {@code OUVERTE} indéfiniment après sa date limite, tant qu'un administrateur
+ * ne la clôture pas à la main.</p>
  */
 @Component
 public class CampagneScheduler {
@@ -19,14 +21,22 @@ public class CampagneScheduler {
 
     private final CampagneService campagneService;
 
+    /**
+     * Crée le planificateur.
+     *
+     * @param campagneService service qui réalise la clôture
+     */
     public CampagneScheduler(CampagneService campagneService) {
         this.campagneService = campagneService;
     }
 
     /**
-     * fixedDelay (et non fixedRate) : le délai est compté à partir de la FIN de l'exécution précédente,
-     * pas de son début. Deux exécutions ne peuvent donc jamais se chevaucher, même si la clôture
-     * de plusieurs campagnes prend plus de temps que l'intervalle configuré.
+     * Clôture les campagnes échues, toutes les 5 minutes par défaut
+     * (propriété {@code gestionfioul.campagnes.cloture-automatique.intervalle-ms}).
+     *
+     * <p>{@code fixedDelay} (et non {@code fixedRate}) : le délai est compté à partir de la FIN de l'exécution
+     * précédente, pas de son début. Deux exécutions ne peuvent donc jamais se chevaucher, même si la clôture
+     * de plusieurs campagnes prend plus de temps que l'intervalle configuré.</p>
      */
     @Scheduled(fixedDelayString = "${gestionfioul.campagnes.cloture-automatique.intervalle-ms:300000}")
     public void cloturerLesCampagnesEchues() {

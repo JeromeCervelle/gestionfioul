@@ -1,5 +1,6 @@
 package fr.limoges.valadon.gestionfioul.user;
 
+import static fr.limoges.valadon.gestionfioul.security.UtilisateursDeTest.ID_ADMIN;
 import static fr.limoges.valadon.gestionfioul.security.UtilisateursDeTest.ID_CLIENT;
 import static fr.limoges.valadon.gestionfioul.security.UtilisateursDeTest.ID_FOURNISSEUR;
 import static fr.limoges.valadon.gestionfioul.security.UtilisateursDeTest.admin;
@@ -197,5 +198,44 @@ class UserControllerTest {
         mockMvc.perform(get("/api/users/inconnu").with(admin()))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").value("Utilisateur introuvable : inconnu"));
+    }
+
+    // ------------------------------------------------------------------- moi
+
+    @Test
+    @DisplayName("GET /api/users/moi : sans authentification, 401")
+    void moi_sans_authentification() throws Exception {
+        mockMvc.perform(get("/api/users/moi"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(userService);
+    }
+
+    @Test
+    @DisplayName("GET /api/users/moi : renvoie le profil de l'utilisateur connecté, sans mot de passe")
+    void moi_renvoie_le_profil_de_l_utilisateur_connecte() throws Exception {
+        when(userService.trouverParId(ID_CLIENT)).thenReturn(unUtilisateur(ID_CLIENT, Role.CLIENT));
+
+        mockMvc.perform(get("/api/users/moi").with(client()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(ID_CLIENT))
+                .andExpect(jsonPath("$.role").value("CLIENT"))
+                .andExpect(jsonPath("$.motDePasse").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("GET /api/users/moi : chaque rôle, admin compris, obtient son propre profil (pas pris pour un id \"moi\")")
+    void moi_pour_chaque_role() throws Exception {
+        when(userService.trouverParId(ID_FOURNISSEUR)).thenReturn(unUtilisateur(ID_FOURNISSEUR, Role.FOURNISSEUR));
+        when(userService.trouverParId(ID_ADMIN)).thenReturn(unUtilisateur(ID_ADMIN, Role.ADMIN));
+
+        mockMvc.perform(get("/api/users/moi").with(fournisseur()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("FOURNISSEUR"));
+        mockMvc.perform(get("/api/users/moi").with(admin()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+
+        verify(userService, never()).trouverParId("moi");
     }
 }

@@ -4,7 +4,10 @@ import java.math.BigDecimal;
 
 /**
  * Tranche de volume avec son prix au litre.
- * Objet embarqué dans une Proposition : pas de @Document ni d'id.
+ *
+ * <p>Objet embarqué dans une {@link Proposition} : pas de {@code @Document} ni d'id.
+ * {@code volumeMin} est inclus, {@code volumeMax} exclu ({@code null} = pas de limite haute),
+ * le prix est en euros.</p>
  */
 public class Palier {
 
@@ -15,6 +18,13 @@ public class Palier {
     public Palier() {
     }
 
+    /**
+     * Crée un palier.
+     *
+     * @param volumeMin début de la tranche, en litres (inclus)
+     * @param volumeMax fin de la tranche, en litres (exclue) ; {@code null} = pas de limite haute
+     * @param prixLitre prix au litre, en euros
+     */
     public Palier(int volumeMin, Integer volumeMax, BigDecimal prixLitre) {
         this.volumeMin = volumeMin;
         this.volumeMax = volumeMax;

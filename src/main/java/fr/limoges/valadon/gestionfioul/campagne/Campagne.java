@@ -6,7 +6,14 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 /**
- * Période de collecte des commandes de fioul des clients.
+ * Période de collecte des commandes de fioul des clients (document MongoDB de la collection {@code campagnes}).
+ *
+ * <ul>
+ *   <li>{@code dateCloture} : date limite de participation ;</li>
+ *   <li>{@code volumeTotal} : somme des participations confirmées, en litres, calculée à la clôture (0 avant) ;</li>
+ *   <li>{@code zoneLivraison} : code postal, secteur... ;</li>
+ *   <li>{@code propositionRetenueId} : renseigné une fois le fournisseur choisi.</li>
+ * </ul>
  */
 @Document(collection = "campagnes")
 public class Campagne {

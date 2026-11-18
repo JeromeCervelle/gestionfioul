@@ -14,7 +14,10 @@ import fr.limoges.valadon.gestionfioul.user.UserService;
 
 /**
  * Crée le compte administrateur au démarrage s'il n'existe pas encore.
- * Un admin ne peut pas s'inscrire par l'API : c'est la seule voie pour en obtenir un.
+ *
+ * <p>Un administrateur ne peut pas s'inscrire par l'API : c'est la seule voie pour en obtenir un.
+ * Email et mot de passe viennent des propriétés {@code gestionfioul.admin.email} et
+ * {@code gestionfioul.admin.password} (variable d'environnement {@code ADMIN_PASSWORD}).</p>
  */
 @Component
 public class AdminInitializer implements ApplicationRunner {
@@ -26,6 +29,14 @@ public class AdminInitializer implements ApplicationRunner {
     private final String email;
     private final String motDePasse;
 
+    /**
+     * Crée l'initialiseur.
+     *
+     * @param userService    service d'inscription (validation et hachage du mot de passe)
+     * @param userRepository pour savoir si le compte existe déjà
+     * @param email          email du compte administrateur
+     * @param motDePasse     mot de passe ; vide : aucun compte n'est créé
+     */
     public AdminInitializer(UserService userService,
                             UserRepository userRepository,
                             @Value("${gestionfioul.admin.email}") String email,
@@ -36,6 +47,11 @@ public class AdminInitializer implements ApplicationRunner {
         this.motDePasse = motDePasse;
     }
 
+    /**
+     * Crée le compte au démarrage de l'application, sauf si le mot de passe est vide ou si le compte existe.
+     *
+     * @param args arguments de la ligne de commande (inutilisés)
+     */
     @Override
     public void run(ApplicationArguments args) {
         if (motDePasse.isBlank()) {

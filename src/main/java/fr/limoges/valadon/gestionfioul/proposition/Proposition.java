@@ -9,7 +9,11 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 /**
- * Offre d'un fournisseur pour une campagne, sous forme de barème dégressif par paliers de volume.
+ * Offre d'un fournisseur pour une campagne, sous forme de barème dégressif par paliers de volume
+ * (document MongoDB de la collection {@code propositions}, paliers embarqués).
+ *
+ * <p>{@code validiteJusqua} : date jusqu'à laquelle le fournisseur garantit ses prix ; elle doit dépasser
+ * la clôture de la campagne.</p>
  */
 @Document(collection = "propositions")
 public class Proposition {
